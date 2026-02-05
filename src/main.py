@@ -62,6 +62,7 @@ def main():
 
     # Debug: Check which optional env vars are set
     print("\n  Debug - Environment variables:")
+    print(f"    EXCEL_FILE_ID set: {bool(os.environ.get('EXCEL_FILE_ID'))}")
     print(f"    SF_USERNAME set: {bool(os.environ.get('SF_USERNAME'))}")
     print(f"    DD_API_KEY set: {bool(os.environ.get('DD_API_KEY'))}")
     print(f"    JIRA_API_TOKEN set: {bool(os.environ.get('JIRA_API_TOKEN'))}")

@@ -142,7 +142,8 @@ class ExcelCollector:
             # Only include Active or Onboarding clients
             if not client_name:
                 continue
-            if status not in ("active", "onboarding"):
+            # Check if status contains "active" or "onboarding" (case insensitive)
+            if "active" not in status and "onboarding" not in status:
                 continue
 
             client = {
