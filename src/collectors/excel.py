@@ -86,7 +86,7 @@ class ExcelCollector:
 
         return None
 
-    def get_clients(self, worksheet: str = "Sheet1") -> list[dict]:
+    def get_clients(self, worksheet: str = "Security Requirements") -> list[dict]:
         """
         Fetch client list from Excel Online.
 
