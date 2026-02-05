@@ -10,60 +10,79 @@ Automated weekly email summarizing all client interactions across multiple syste
 - **Datadog** - Usage metrics and monitor status
 - **Jira** - Tickets and document submissions
 
+## Security Model
+
+This app uses **delegated permissions** with a refresh token. This means:
+- Each user runs a one-time setup to authenticate with their Microsoft account
+- The app only has access to **that user's** mailbox, calendar, and OneDrive
+- No access to other users' data in the organization
+
 ## Setup
 
-### 1. Azure App Registration (Microsoft Graph)
+### 1. Azure App Registration
 
-Create an Azure AD app for Microsoft Graph access:
+The Azure AD app should already be configured. If setting up fresh:
 
 1. Go to [Azure Portal](https://portal.azure.com) > Azure Active Directory > App registrations
-2. Click "New registration"
-3. Name: `CS Summary Email`
-4. Supported account types: Single tenant
-5. After creation, go to "API permissions" and add:
-   - `Mail.Read` - Read user mail
-   - `Mail.Send` - Send mail as user
-   - `Calendars.Read` - Read user calendars
-   - `Files.Read.All` - Read files (for Excel)
-6. Click "Grant admin consent"
-7. Go to "Certificates & secrets" > "New client secret"
-8. Copy the secret value (you'll need this)
+2. Create new registration named `CS Weekly Summary`
+3. Add **Delegated** permissions (not Application):
+   - `Calendars.Read`
+   - `Mail.Read`
+   - `Mail.Send`
+   - `Files.Read`
+   - `User.Read`
+   - `offline_access`
+4. Add redirect URI: `http://localhost:8000/callback` (Web platform)
+5. Grant admin consent
 
-### 2. Get Excel File ID
+### 2. Get Your Refresh Token
 
-1. Open your Excel file in OneDrive/SharePoint
-2. The URL will look like: `https://company.sharepoint.com/.../Clients%20and%20Products.xlsx?...`
-3. Use Graph Explorer to get the file ID, or extract from the URL
+Run the token script locally:
 
-### 3. Salesforce Connected App
+```bash
+cd CS_summary_email
+pip install requests
+python scripts/get_refresh_token.py
+```
 
-1. Go to Setup > App Manager > New Connected App
-2. Enable OAuth Settings
-3. Select scopes: `api`, `refresh_token`
-4. Get Consumer Key and Consumer Secret
+This will:
+1. Open your browser to sign in with Microsoft
+2. Display a refresh token
+3. Copy this token for the next step
 
-### 4. Datadog API Keys
+### 3. Get Excel File ID
 
-1. Go to Organization Settings > API Keys
-2. Create new API key
-3. Go to Organization Settings > Application Keys
-4. Create new Application key
+After running the token script, you can find your Excel file ID:
 
-### 5. Jira API Token
+```bash
+python -c "
+from src.auth import TokenManager
+from src.collectors.excel import ExcelCollector
+import os
+os.environ['MS_REFRESH_TOKEN'] = 'your-refresh-token-here'
+tm = TokenManager()
+ec = ExcelCollector(tm)
+result = ec.find_file('Clients and Products.xlsx')
+print(f'File ID: {result[\"id\"]}')"
+```
 
-1. Go to https://id.atlassian.com/manage-profile/security/api-tokens
-2. Create new API token
-
-### 6. GitHub Secrets
+### 4. Configure GitHub Secrets
 
 Add these secrets to your GitHub repository (Settings > Secrets > Actions):
 
+**Required:**
+
 | Secret | Description |
 |--------|-------------|
-| `MS_CLIENT_ID` | Azure AD App Client ID |
-| `MS_CLIENT_SECRET` | Azure AD App Client Secret |
-| `MS_TENANT_ID` | Azure AD Tenant ID |
-| `EXCEL_FILE_ID` | OneDrive/SharePoint file ID for client spreadsheet |
+| `MS_CLIENT_ID` | Azure AD App Client ID: `d679d9d3-5dd1-454f-b3dd-53f3a9b909c3` |
+| `MS_TENANT_ID` | Azure AD Tenant ID: `1cdfbb46-a98c-40e1-9173-60fda279a56c` |
+| `MS_REFRESH_TOKEN` | Your personal refresh token from step 2 |
+| `EXCEL_FILE_ID` | OneDrive file ID for client spreadsheet |
+
+**Optional (for additional data sources):**
+
+| Secret | Description |
+|--------|-------------|
 | `SF_USERNAME` | Salesforce username |
 | `SF_PASSWORD` | Salesforce password |
 | `SF_SECURITY_TOKEN` | Salesforce security token |
@@ -74,7 +93,6 @@ Add these secrets to your GitHub repository (Settings > Secrets > Actions):
 | `JIRA_URL` | Jira instance URL |
 | `JIRA_USERNAME` | Jira username (email) |
 | `JIRA_API_TOKEN` | Jira API token |
-| `REPORT_RECIPIENT` | Email address to receive the report |
 
 ## Spreadsheet Format
 
@@ -86,18 +104,20 @@ Your Excel spreadsheet should have these columns:
 | Data Location Requirements | Optional notes |
 | Subcontractor Requirements | Optional notes |
 
-Future enhancement: Add columns for email domains, Salesforce Account IDs, Datadog tags, and Jira labels.
-
 ## Running Locally
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Set environment variables (or create .env file)
-export MS_CLIENT_ID=...
-export MS_CLIENT_SECRET=...
-# ... etc
+# Set environment variables
+export MS_REFRESH_TOKEN="your-refresh-token"
+export EXCEL_FILE_ID="your-file-id"
+
+# Optionally set Jira credentials
+export JIRA_URL="https://streetdiligence.atlassian.net"
+export JIRA_USERNAME="your-email"
+export JIRA_API_TOKEN="your-token"
 
 # Run
 python src/main.py
@@ -109,21 +129,22 @@ The GitHub Action runs every Monday at 8 AM Eastern (13:00 UTC).
 
 You can also trigger manually via Actions > Weekly Client Summary > Run workflow.
 
+## Multi-User Setup
+
+Each person who wants their own weekly summary needs to:
+
+1. Run `python scripts/get_refresh_token.py` locally
+2. Sign in with their Microsoft account
+3. Add their personal `MS_REFRESH_TOKEN` to their own fork/branch
+
+The token is tied to the individual user and only grants access to their data.
+
 ## Customization
-
-### Adding Client Identifiers
-
-To improve matching accuracy, add columns to your spreadsheet:
-
-- `Email Domains` - Comma-separated domains (e.g., `acme.com, acme.io`)
-- `Salesforce Account ID` - Direct SF Account ID
-- `Datadog Tag` - Client tag in Datadog (e.g., `client:acme`)
-- `Jira Label` - Label used in Jira (e.g., `client-acme`)
-
-### Datadog Metrics
-
-Edit `src/collectors/datadog.py` to customize which metrics are pulled for each client.
 
 ### Report Template
 
 Modify `templates/email_template.html` to customize the email appearance.
+
+### Datadog Metrics
+
+Edit `src/collectors/datadog.py` to customize which metrics are pulled for each client.

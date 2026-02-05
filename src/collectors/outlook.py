@@ -1,12 +1,16 @@
 """
 Outlook collector - fetches calendar events and emails via Microsoft Graph API.
+
+Uses delegated permissions (refresh token) to access only the authenticated user's data.
 """
 
 import os
 from datetime import datetime, timedelta
-from typing import Optional
-import msal
+from typing import Optional, TYPE_CHECKING
 import requests
+
+if TYPE_CHECKING:
+    from ..auth import TokenManager
 
 
 class OutlookCollector:
@@ -14,52 +18,25 @@ class OutlookCollector:
 
     GRAPH_URL = "https://graph.microsoft.com/v1.0"
 
-    def __init__(
-        self,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-    ):
-        self.client_id = client_id or os.environ.get("MS_CLIENT_ID")
-        self.client_secret = client_secret or os.environ.get("MS_CLIENT_SECRET")
-        self.tenant_id = tenant_id or os.environ.get("MS_TENANT_ID")
-        self._access_token: Optional[str] = None
+    def __init__(self, token_manager: "TokenManager"):
+        """
+        Initialize with a TokenManager for authentication.
 
-    def _get_access_token(self) -> str:
-        """Get Microsoft Graph access token using client credentials flow."""
-        if self._access_token:
-            return self._access_token
-
-        authority = f"https://login.microsoftonline.com/{self.tenant_id}"
-        app = msal.ConfidentialClientApplication(
-            self.client_id,
-            authority=authority,
-            client_credential=self.client_secret,
-        )
-
-        result = app.acquire_token_for_client(
-            scopes=["https://graph.microsoft.com/.default"]
-        )
-
-        if "access_token" not in result:
-            raise Exception(f"Failed to get access token: {result.get('error_description')}")
-
-        self._access_token = result["access_token"]
-        return self._access_token
+        Args:
+            token_manager: TokenManager instance for getting access tokens
+        """
+        self.token_manager = token_manager
 
     def _get_headers(self) -> dict:
         """Get headers for Graph API requests."""
-        return {
-            "Authorization": f"Bearer {self._get_access_token()}",
-            "Content-Type": "application/json",
-            "Prefer": 'outlook.timezone="Eastern Standard Time"',
-        }
+        headers = self.token_manager.get_headers()
+        headers["Prefer"] = 'outlook.timezone="Eastern Standard Time"'
+        return headers
 
     def get_calendar_events(
         self,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        user_email: Optional[str] = None,
     ) -> list[dict]:
         """
         Fetch calendar events for the specified date range.
@@ -67,7 +44,6 @@ class OutlookCollector:
         Args:
             start_date: Start of date range (default: 7 days ago)
             end_date: End of date range (default: now)
-            user_email: User's email for delegated access
 
         Returns:
             List of calendar events with attendees
@@ -80,11 +56,8 @@ class OutlookCollector:
         start_str = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
         end_str = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # Use /me for the authenticated user or /users/{email} for specific user
-        base = f"{self.GRAPH_URL}/me" if not user_email else f"{self.GRAPH_URL}/users/{user_email}"
-
         url = (
-            f"{base}/calendar/calendarView"
+            f"{self.GRAPH_URL}/me/calendar/calendarView"
             f"?startDateTime={start_str}"
             f"&endDateTime={end_str}"
             f"&$select=subject,start,end,attendees,organizer,location,isOnlineMeeting"
@@ -121,7 +94,6 @@ class OutlookCollector:
         self,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        user_email: Optional[str] = None,
         folder: str = "inbox",
     ) -> list[dict]:
         """
@@ -130,7 +102,6 @@ class OutlookCollector:
         Args:
             start_date: Start of date range (default: 7 days ago)
             end_date: End of date range (default: now)
-            user_email: User's email for delegated access
             folder: Mail folder to search
 
         Returns:
@@ -144,10 +115,8 @@ class OutlookCollector:
         start_str = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
         end_str = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        base = f"{self.GRAPH_URL}/me" if not user_email else f"{self.GRAPH_URL}/users/{user_email}"
-
         url = (
-            f"{base}/mailFolders/{folder}/messages"
+            f"{self.GRAPH_URL}/me/mailFolders/{folder}/messages"
             f"?$filter=receivedDateTime ge {start_str} and receivedDateTime le {end_str}"
             f"&$select=subject,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments"
             f"&$orderby=receivedDateTime desc"
@@ -182,15 +151,56 @@ class OutlookCollector:
         self,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        user_email: Optional[str] = None,
     ) -> list[dict]:
         """Fetch sent emails for the specified date range."""
         return self.get_emails(
             start_date=start_date,
             end_date=end_date,
-            user_email=user_email,
             folder="sentitems",
         )
+
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        html_body: str,
+        save_to_sent: bool = True,
+    ) -> bool:
+        """
+        Send an email.
+
+        Args:
+            to: Recipient email address
+            subject: Email subject
+            html_body: HTML content of the email
+            save_to_sent: Whether to save to sent items
+
+        Returns:
+            True if sent successfully
+        """
+        url = f"{self.GRAPH_URL}/me/sendMail"
+
+        email_data = {
+            "message": {
+                "subject": subject,
+                "body": {
+                    "contentType": "HTML",
+                    "content": html_body,
+                },
+                "toRecipients": [
+                    {"emailAddress": {"address": to}}
+                ],
+            },
+            "saveToSentItems": save_to_sent,
+        }
+
+        response = requests.post(url, headers=self._get_headers(), json=email_data)
+
+        if response.status_code == 202:
+            return True
+        else:
+            print(f"Failed to send email: {response.status_code} - {response.text}")
+            return False
 
     def filter_by_client(
         self,

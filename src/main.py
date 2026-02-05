@@ -1,14 +1,14 @@
 """
 Main orchestrator - coordinates data collection and report generation.
+
+Uses delegated permissions (refresh token) to access only the authenticated user's data.
 """
 
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import Optional
-import requests
-import msal
 
+from auth import TokenManager
 from collectors import (
     ExcelCollector,
     OutlookCollector,
@@ -26,93 +26,31 @@ def get_date_range(lookback_days: int = 7) -> tuple[datetime, datetime]:
     return start_date, end_date
 
 
-def send_email_via_graph(
-    client_id: str,
-    client_secret: str,
-    tenant_id: str,
-    recipient: str,
-    subject: str,
-    html_body: str,
-    text_body: str,
-) -> bool:
-    """Send email using Microsoft Graph API."""
-    # Get access token
-    authority = f"https://login.microsoftonline.com/{tenant_id}"
-    app = msal.ConfidentialClientApplication(
-        client_id,
-        authority=authority,
-        client_credential=client_secret,
-    )
-    result = app.acquire_token_for_client(
-        scopes=["https://graph.microsoft.com/.default"]
-    )
-
-    if "access_token" not in result:
-        print(f"Failed to get access token: {result.get('error_description')}")
-        return False
-
-    # Send email
-    url = f"https://graph.microsoft.com/v1.0/users/{recipient}/sendMail"
-    headers = {
-        "Authorization": f"Bearer {result['access_token']}",
-        "Content-Type": "application/json",
-    }
-
-    email_data = {
-        "message": {
-            "subject": subject,
-            "body": {
-                "contentType": "HTML",
-                "content": html_body,
-            },
-            "toRecipients": [
-                {"emailAddress": {"address": recipient}}
-            ],
-        },
-        "saveToSentItems": True,
-    }
-
-    response = requests.post(url, headers=headers, json=email_data)
-
-    if response.status_code == 202:
-        print(f"Email sent successfully to {recipient}")
-        return True
-    else:
-        print(f"Failed to send email: {response.status_code} - {response.text}")
-        return False
-
-
 def main():
     """Main entry point."""
     print("Starting Weekly Client Summary Report Generation...")
     print("=" * 60)
 
-    # Get configuration from environment
-    ms_client_id = os.environ.get("MS_CLIENT_ID")
-    ms_client_secret = os.environ.get("MS_CLIENT_SECRET")
-    ms_tenant_id = os.environ.get("MS_TENANT_ID")
-    excel_file_id = os.environ.get("EXCEL_FILE_ID")
-    recipient = os.environ.get("REPORT_RECIPIENT")
-
-    if not all([ms_client_id, ms_client_secret, ms_tenant_id, recipient]):
-        print("ERROR: Missing required Microsoft configuration")
+    # Initialize Microsoft Graph authentication
+    print("\nAuthenticating with Microsoft Graph...")
+    try:
+        token_manager = TokenManager()
+        user_info = token_manager.verify_connection()
+        print(f"  Authenticated as: {user_info['display_name']} ({user_info['email']})")
+    except Exception as e:
+        print(f"ERROR: Microsoft authentication failed: {e}")
         sys.exit(1)
+
+    recipient_email = user_info["email"]
 
     # Initialize collectors
     print("\nInitializing collectors...")
 
-    excel_collector = ExcelCollector(
-        client_id=ms_client_id,
-        client_secret=ms_client_secret,
-        tenant_id=ms_tenant_id,
-        file_id=excel_file_id,
-    )
+    excel_collector = ExcelCollector(token_manager=token_manager)
+    print("  - Excel collector initialized")
 
-    outlook_collector = OutlookCollector(
-        client_id=ms_client_id,
-        client_secret=ms_client_secret,
-        tenant_id=ms_tenant_id,
-    )
+    outlook_collector = OutlookCollector(token_manager=token_manager)
+    print("  - Outlook collector initialized")
 
     # Optional collectors - initialize if credentials provided
     salesforce_collector = None
@@ -126,7 +64,7 @@ def main():
         print("  - Datadog collector initialized")
 
     jira_collector = None
-    if os.environ.get("JIRA_URL"):
+    if os.environ.get("JIRA_API_TOKEN"):
         jira_collector = JiraCollector()
         print("  - Jira collector initialized")
 
@@ -141,7 +79,7 @@ def main():
         print(f"  Found {len(clients)} clients")
     except Exception as e:
         print(f"  ERROR: Failed to fetch client list: {e}")
-        # Fallback to empty list or exit
+        print("  Continuing with empty client list...")
         clients = []
 
     # Fetch Outlook data (calendar events and emails)
@@ -170,13 +108,13 @@ def main():
     # Collect data for each client
     print("\nCollecting data for each client...")
     clients_data = []
+    report_gen = ReportGenerator()
 
     for client in clients:
         client_name = client["name"]
         print(f"  Processing: {client_name}")
 
         # Filter Outlook data for this client
-        # TODO: Add email domain mapping to spreadsheet
         client_events = outlook_collector.filter_by_client(all_events, client_name)
         client_emails_received = outlook_collector.filter_by_client(all_emails_received, client_name)
         client_emails_sent = outlook_collector.filter_by_client(all_emails_sent, client_name)
@@ -202,7 +140,6 @@ def main():
         # Datadog data
         datadog_data = {}
         if datadog_collector:
-            # TODO: Add datadog tag mapping to spreadsheet
             client_tag = f"client:{client_name.lower().replace(' ', '-')}"
             try:
                 datadog_data = datadog_collector.get_client_usage(
@@ -216,7 +153,6 @@ def main():
         # Jira data
         jira_data = {}
         if jira_collector:
-            # TODO: Add Jira label mapping to spreadsheet
             client_label = f"client-{client_name.lower().replace(' ', '-')}"
             try:
                 jira_data = jira_collector.get_client_summary(
@@ -228,7 +164,6 @@ def main():
                 print(f"    Warning: Jira error for {client_name}: {e}")
 
         # Aggregate data
-        report_gen = ReportGenerator()
         client_summary = report_gen.aggregate_client_data(
             client_name=client_name,
             outlook_data=outlook_data,
@@ -241,7 +176,6 @@ def main():
 
     # Generate report
     print("\nGenerating report...")
-    report_gen = ReportGenerator()
     html_report = report_gen.generate_report(
         clients_data=clients_data,
         start_date=start_date,
@@ -258,17 +192,14 @@ def main():
     print("\nSending email...")
     subject = f"Weekly Client Summary - {start_date.strftime('%b %d')} to {end_date.strftime('%b %d, %Y')}"
 
-    success = send_email_via_graph(
-        client_id=ms_client_id,
-        client_secret=ms_client_secret,
-        tenant_id=ms_tenant_id,
-        recipient=recipient,
+    success = outlook_collector.send_email(
+        to=recipient_email,
         subject=subject,
         html_body=html_report,
-        text_body=text_report,
     )
 
     if success:
+        print(f"\nEmail sent to {recipient_email}")
         print("\n" + "=" * 60)
         print("Report generation and delivery complete!")
     else:

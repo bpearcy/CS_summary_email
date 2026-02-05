@@ -1,11 +1,15 @@
 """
 Excel Online collector - reads client list from Excel spreadsheet via Microsoft Graph API.
+
+Uses delegated permissions (refresh token) to access the authenticated user's OneDrive.
 """
 
 import os
-from typing import Optional
-import msal
+from typing import Optional, TYPE_CHECKING
 import requests
+
+if TYPE_CHECKING:
+    from ..auth import TokenManager
 
 
 class ExcelCollector:
@@ -15,62 +19,85 @@ class ExcelCollector:
 
     def __init__(
         self,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        token_manager: "TokenManager",
         file_id: Optional[str] = None,
+        file_path: Optional[str] = None,
     ):
-        self.client_id = client_id or os.environ.get("MS_CLIENT_ID")
-        self.client_secret = client_secret or os.environ.get("MS_CLIENT_SECRET")
-        self.tenant_id = tenant_id or os.environ.get("MS_TENANT_ID")
+        """
+        Initialize with a TokenManager for authentication.
+
+        Args:
+            token_manager: TokenManager instance for getting access tokens
+            file_id: OneDrive file ID (preferred)
+            file_path: Path to file in OneDrive (e.g., "/Documents/Clients.xlsx")
+        """
+        self.token_manager = token_manager
         self.file_id = file_id or os.environ.get("EXCEL_FILE_ID")
-        self._access_token: Optional[str] = None
-
-    def _get_access_token(self) -> str:
-        """Get Microsoft Graph access token using client credentials flow."""
-        if self._access_token:
-            return self._access_token
-
-        authority = f"https://login.microsoftonline.com/{self.tenant_id}"
-        app = msal.ConfidentialClientApplication(
-            self.client_id,
-            authority=authority,
-            client_credential=self.client_secret,
-        )
-
-        result = app.acquire_token_for_client(
-            scopes=["https://graph.microsoft.com/.default"]
-        )
-
-        if "access_token" not in result:
-            raise Exception(f"Failed to get access token: {result.get('error_description')}")
-
-        self._access_token = result["access_token"]
-        return self._access_token
+        self.file_path = file_path or os.environ.get("EXCEL_FILE_PATH")
 
     def _get_headers(self) -> dict:
         """Get headers for Graph API requests."""
-        return {
-            "Authorization": f"Bearer {self._get_access_token()}",
-            "Content-Type": "application/json",
-        }
+        return self.token_manager.get_headers()
 
-    def get_clients(self) -> list[dict]:
+    def _get_file_url(self) -> str:
+        """Get the Graph API URL for the Excel file."""
+        if self.file_id:
+            return f"{self.GRAPH_URL}/me/drive/items/{self.file_id}"
+        elif self.file_path:
+            # URL-encode the path
+            encoded_path = self.file_path.replace("/", ":/").rstrip(":")
+            return f"{self.GRAPH_URL}/me/drive/root:{encoded_path}:"
+        else:
+            raise ValueError("Either file_id or file_path must be provided")
+
+    def find_file(self, filename: str) -> Optional[dict]:
+        """
+        Search for a file by name in the user's OneDrive.
+
+        Args:
+            filename: Name of the file to search for
+
+        Returns:
+            File info dict with id, name, webUrl, or None if not found
+        """
+        url = f"{self.GRAPH_URL}/me/drive/root/search(q='{filename}')"
+
+        response = requests.get(url, headers=self._get_headers())
+        response.raise_for_status()
+
+        files = response.json().get("value", [])
+
+        for f in files:
+            if f.get("name", "").lower() == filename.lower():
+                return {
+                    "id": f.get("id"),
+                    "name": f.get("name"),
+                    "web_url": f.get("webUrl"),
+                }
+
+        # Return first match if exact match not found
+        if files:
+            f = files[0]
+            return {
+                "id": f.get("id"),
+                "name": f.get("name"),
+                "web_url": f.get("webUrl"),
+            }
+
+        return None
+
+    def get_clients(self, worksheet: str = "Sheet1") -> list[dict]:
         """
         Fetch client list from Excel Online.
 
-        Returns list of dicts with client info:
-        [
-            {
-                "name": "Client Name",
-                "data_location_requirements": "...",
-                "subcontractor_requirements": "...",
-            },
-            ...
-        ]
+        Args:
+            worksheet: Name of the worksheet to read
+
+        Returns:
+            List of dicts with client info
         """
-        # Read the used range from the first worksheet
-        url = f"{self.GRAPH_URL}/me/drive/items/{self.file_id}/workbook/worksheets/Sheet1/usedRange"
+        file_url = self._get_file_url()
+        url = f"{file_url}/workbook/worksheets/{worksheet}/usedRange"
 
         response = requests.get(url, headers=self._get_headers())
         response.raise_for_status()
@@ -82,7 +109,7 @@ class ExcelCollector:
             return []
 
         # First row is headers
-        headers = values[0]
+        headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(values[0])]
         clients = []
 
         for row in values[1:]:
@@ -90,13 +117,13 @@ class ExcelCollector:
                 continue
 
             client = {
-                "name": row[0] if len(row) > 0 else "",
-                "data_location_requirements": row[1] if len(row) > 1 else "",
-                "subcontractor_requirements": row[2] if len(row) > 2 else "",
+                "name": str(row[0]).strip() if len(row) > 0 and row[0] else "",
+                "data_location_requirements": str(row[1]).strip() if len(row) > 1 and row[1] else "",
+                "subcontractor_requirements": str(row[2]).strip() if len(row) > 2 and row[2] else "",
             }
 
             # Only add if there's a client name
-            if client["name"] and str(client["name"]).strip():
+            if client["name"]:
                 clients.append(client)
 
         # Sort alphabetically by name
