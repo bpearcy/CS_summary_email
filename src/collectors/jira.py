@@ -28,9 +28,10 @@ class JiraCollector:
         username: Optional[str] = None,
         api_token: Optional[str] = None,
     ):
-        self.url = url or os.environ.get("JIRA_URL", DEFAULT_JIRA_URL)
-        self.username = username or os.environ.get("JIRA_USERNAME")
-        self.api_token = api_token or os.environ.get("JIRA_API_TOKEN")
+        raw_url = url or os.environ.get("JIRA_URL", DEFAULT_JIRA_URL)
+        self.url = raw_url.strip().rstrip("/") if raw_url else DEFAULT_JIRA_URL
+        self.username = (username or os.environ.get("JIRA_USERNAME", "")).strip()
+        self.api_token = (api_token or os.environ.get("JIRA_API_TOKEN", "")).strip()
         self._auth = HTTPBasicAuth(self.username, self.api_token) if self.username and self.api_token else None
 
     def _search(self, jql: str, fields: list[str], max_results: int = 100) -> list[dict]:
