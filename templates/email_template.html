@@ -96,6 +96,23 @@
       color: #e74c3c;
       font-weight: 700;
     }
+    .client-list {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .client-list h3 {
+      margin: 0 0 10px 0;
+      color: #34495e;
+      font-size: 1em;
+    }
+    .client-names {
+      margin: 0;
+      color: #7f8c8d;
+      font-size: 0.9em;
+      line-height: 1.8;
+    }
     .footer {
       margin-top: 30px;
       padding-top: 20px;
@@ -164,6 +181,13 @@
         {% endfor %}
       </tbody>
     </table>
+
+    <div class="client-list">
+      <h3>All Clients ({{ clients|length }})</h3>
+      <p class="client-names">
+        {% for client in clients %}{{ client.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </p>
+    </div>
 
     <div class="footer">
       Report generated {{ generated_at }}

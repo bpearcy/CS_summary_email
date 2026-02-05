@@ -113,13 +113,14 @@ class ExcelCollector:
         clients = []
 
         for row in values[1:]:
-            if not row or not row[0]:  # Skip empty rows
+            if not row or len(row) < 2:  # Skip empty rows
                 continue
 
+            # Client name is in column B (index 1)
             client = {
-                "name": str(row[0]).strip() if len(row) > 0 and row[0] else "",
-                "data_location_requirements": str(row[1]).strip() if len(row) > 1 and row[1] else "",
-                "subcontractor_requirements": str(row[2]).strip() if len(row) > 2 and row[2] else "",
+                "name": str(row[1]).strip() if len(row) > 1 and row[1] else "",
+                "data_location_requirements": str(row[2]).strip() if len(row) > 2 and row[2] else "",
+                "subcontractor_requirements": str(row[3]).strip() if len(row) > 3 and row[3] else "",
             }
 
             # Only add if there's a client name
