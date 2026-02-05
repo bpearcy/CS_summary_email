@@ -99,18 +99,35 @@ class ExcelCollector:
         file_url = self._get_file_url()
         url = f"{file_url}/workbook/worksheets/{worksheet}/usedRange"
 
+        print(f"    Excel URL: {url}")
+        print(f"    File ID: {self.file_id}")
+
         response = requests.get(url, headers=self._get_headers())
-        response.raise_for_status()
+        print(f"    Excel response status: {response.status_code}")
+
+        if response.status_code != 200:
+            print(f"    Excel error: {response.text[:500]}")
+            response.raise_for_status()
 
         data = response.json()
         values = data.get("values", [])
+
+        print(f"    Excel rows returned: {len(values)}")
 
         if not values:
             return []
 
         # First row is headers
         headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(values[0])]
+        print(f"    Excel headers: {headers[:15]}")  # Show first 15 columns
+
         clients = []
+
+        # Debug: show first few rows
+        for i, row in enumerate(values[1:6]):  # First 5 data rows
+            client_name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+            status = str(row[11]).strip() if len(row) > 11 and row[11] else "(empty)"
+            print(f"    Row {i+2}: client='{client_name}', status='{status}'")
 
         for row in values[1:]:
             if not row or len(row) < 2:  # Skip empty rows
@@ -119,7 +136,8 @@ class ExcelCollector:
             # Client name is in column B (index 1)
             # Status is in column L (index 11)
             client_name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-            status = str(row[11]).strip().lower() if len(row) > 11 and row[11] else ""
+            status_raw = str(row[11]).strip() if len(row) > 11 and row[11] else ""
+            status = status_raw.lower()
 
             # Only include Active or Onboarding clients
             if not client_name:
@@ -129,7 +147,7 @@ class ExcelCollector:
 
             client = {
                 "name": client_name,
-                "status": status,
+                "status": status_raw,
                 "data_location_requirements": str(row[2]).strip() if len(row) > 2 and row[2] else "",
                 "subcontractor_requirements": str(row[3]).strip() if len(row) > 3 and row[3] else "",
             }
