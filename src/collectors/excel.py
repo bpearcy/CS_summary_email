@@ -32,8 +32,10 @@ class ExcelCollector:
             file_path: Path to file in OneDrive (e.g., "/Documents/Clients.xlsx")
         """
         self.token_manager = token_manager
-        self.file_id = file_id or os.environ.get("EXCEL_FILE_ID")
-        self.file_path = file_path or os.environ.get("EXCEL_FILE_PATH")
+        raw_file_id = file_id or os.environ.get("EXCEL_FILE_ID")
+        self.file_id = raw_file_id.strip() if raw_file_id else None
+        raw_file_path = file_path or os.environ.get("EXCEL_FILE_PATH")
+        self.file_path = raw_file_path.strip() if raw_file_path else None
 
     def _get_headers(self) -> dict:
         """Get headers for Graph API requests."""
