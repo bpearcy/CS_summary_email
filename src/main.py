@@ -72,18 +72,28 @@ def main():
     start_date, end_date = get_date_range(7)
     print(f"\nReport period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 
-    # Get client list
-    print("\nFetching client list from Excel...")
-    try:
-        clients = excel_collector.get_clients()
-        print(f"  Found {len(clients)} clients")
-    except Exception as e:
-        print(f"  ERROR: Failed to fetch client list: {e}")
-        print("  Continuing with empty client list...")
-        clients = []
+    # Fetch Jira data FIRST - grouped by client
+    # This gives us the authoritative list of clients with activity
+    print("\nFetching Jira PRODOPS tickets...")
+    jira_by_client = {}
+    if jira_collector:
+        try:
+            jira_by_client = jira_collector.get_all_client_tickets(
+                start_date=start_date,
+                end_date=end_date,
+            )
+            total_tickets = sum(len(tickets) for tickets in jira_by_client.values())
+            print(f"  Found {total_tickets} tickets across {len(jira_by_client)} clients")
+            for client, tickets in sorted(jira_by_client.items()):
+                print(f"    - {client}: {len(tickets)} tickets")
+        except Exception as e:
+            print(f"  ERROR: Failed to fetch Jira data: {e}")
 
     # Fetch Outlook data (calendar events and emails)
     print("\nFetching Outlook data...")
+    all_events = []
+    all_emails_received = []
+    all_emails_sent = []
     try:
         all_events = outlook_collector.get_calendar_events(
             start_date=start_date,
@@ -101,20 +111,43 @@ def main():
         print(f"  Found {len(all_events)} events, {len(all_emails_received)} received emails, {len(all_emails_sent)} sent emails")
     except Exception as e:
         print(f"  ERROR: Failed to fetch Outlook data: {e}")
-        all_events = []
-        all_emails_received = []
-        all_emails_sent = []
 
-    # Collect data for each client
-    print("\nCollecting data for each client...")
+    # Build client list from Jira data (clients with actual activity)
+    # This ensures we report on clients that have PRODOPS tickets
+    print("\nBuilding report by client...")
     clients_data = []
     report_gen = ReportGenerator()
 
-    for client in clients:
-        client_name = client["name"]
-        print(f"  Processing: {client_name}")
+    # Process each client that has Jira tickets
+    for client_name in sorted(jira_by_client.keys()):
+        # Skip internal/demo clients
+        if "demo" in client_name.lower() or "client success" in client_name.lower():
+            continue
 
-        # Filter Outlook data for this client
+        tickets = jira_by_client[client_name]
+        print(f"  Processing: {client_name} ({len(tickets)} PRODOPS tickets)")
+
+        # Count ticket stats
+        new_tickets = [t for t in tickets if t.get("created", "")[:10] >= start_date.strftime("%Y-%m-%d")]
+        resolved_tickets = [t for t in tickets if t.get("resolved")]
+
+        # Group by status
+        by_status = {}
+        for t in tickets:
+            status = t.get("status", "Unknown")
+            by_status[status] = by_status.get(status, 0) + 1
+
+        jira_data = {
+            "client": client_name,
+            "total_issues": len(tickets),
+            "new_issues": len(new_tickets),
+            "resolved_issues": len(resolved_tickets),
+            "by_status": by_status,
+            "by_type": {"Support": len(tickets)},
+            "issues": tickets,
+        }
+
+        # Try to find Outlook data for this client (fuzzy match)
         client_events = outlook_collector.filter_by_client(all_events, client_name)
         client_emails_received = outlook_collector.filter_by_client(all_emails_received, client_name)
         client_emails_sent = outlook_collector.filter_by_client(all_emails_sent, client_name)
@@ -125,56 +158,19 @@ def main():
             "emails_sent": client_emails_sent,
         }
 
-        # Salesforce data
-        salesforce_data = {}
-        if salesforce_collector:
-            try:
-                salesforce_data = salesforce_collector.get_client_summary(
-                    client_name=client_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-            except Exception as e:
-                print(f"    Warning: Salesforce error for {client_name}: {e}")
-
-        # Datadog data
-        datadog_data = {}
-        if datadog_collector:
-            client_tag = f"client:{client_name.lower().replace(' ', '-')}"
-            try:
-                datadog_data = datadog_collector.get_client_usage(
-                    client_tag=client_tag,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-            except Exception as e:
-                print(f"    Warning: Datadog error for {client_name}: {e}")
-
-        # Jira data
-        jira_data = {}
-        if jira_collector:
-            try:
-                jira_data = jira_collector.get_client_summary(
-                    client_name=client_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-            except Exception as e:
-                print(f"    Warning: Jira error for {client_name}: {e}")
-
         # Aggregate data
         client_summary = report_gen.aggregate_client_data(
             client_name=client_name,
             outlook_data=outlook_data,
-            salesforce_data=salesforce_data,
-            datadog_data=datadog_data,
+            salesforce_data={},
+            datadog_data={},
             jira_data=jira_data,
         )
 
         clients_data.append(client_summary)
 
     # Generate report
-    print("\nGenerating report...")
+    print(f"\nGenerating report for {len(clients_data)} clients...")
     html_report = report_gen.generate_report(
         clients_data=clients_data,
         start_date=start_date,
