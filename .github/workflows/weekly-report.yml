@@ -1,0 +1,53 @@
+name: Weekly Client Summary
+
+on:
+  schedule:
+    # 8 AM Eastern = 13:00 UTC (or 12:00 UTC during DST)
+    # Using 13:00 UTC for EST (standard time)
+    - cron: '0 13 * * 1'
+  workflow_dispatch:  # Allow manual trigger for testing
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate and send weekly report
+        env:
+          # Microsoft Graph (Outlook + Excel)
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
+          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          EXCEL_FILE_ID: ${{ secrets.EXCEL_FILE_ID }}
+
+          # Salesforce
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+          SF_SECURITY_TOKEN: ${{ secrets.SF_SECURITY_TOKEN }}
+          SF_DOMAIN: ${{ secrets.SF_DOMAIN }}
+
+          # Datadog
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          DD_SITE: ${{ secrets.DD_SITE }}
+
+          # Jira
+          JIRA_URL: ${{ secrets.JIRA_URL }}
+          JIRA_USERNAME: ${{ secrets.JIRA_USERNAME }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+          # Report
+          REPORT_RECIPIENT: ${{ secrets.REPORT_RECIPIENT }}
+        run: python src/main.py

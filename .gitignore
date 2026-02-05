@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Local data (spreadsheet is read from Excel Online)
+*.xlsx
+*.xls
+
+# Secrets
+.env
+config.yaml

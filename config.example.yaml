@@ -1,0 +1,37 @@
+# Copy this file to config.yaml and fill in your values
+# Or set these as environment variables / GitHub secrets
+
+# Microsoft Graph (Outlook + Excel Online)
+microsoft:
+  client_id: "your-azure-app-client-id"
+  client_secret: "your-azure-app-client-secret"
+  tenant_id: "your-azure-tenant-id"
+  # The Excel file in OneDrive/SharePoint
+  excel_file_path: "/path/to/Clients and Products.xlsx"
+  # Or use a SharePoint site + drive
+  # sharepoint_site: "your-site"
+  # drive_id: "your-drive-id"
+
+# Salesforce
+salesforce:
+  username: "your-username@company.com"
+  password: "your-password"
+  security_token: "your-security-token"
+  domain: "login"  # or "test" for sandbox
+
+# Datadog
+datadog:
+  api_key: "your-datadog-api-key"
+  app_key: "your-datadog-app-key"
+  site: "datadoghq.com"  # or datadoghq.eu, etc.
+
+# Jira
+jira:
+  url: "https://yourcompany.atlassian.net"
+  username: "your-email@company.com"
+  api_token: "your-jira-api-token"
+
+# Report settings
+report:
+  recipient_email: "your-email@company.com"
+  lookback_days: 7

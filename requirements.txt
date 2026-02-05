@@ -1,0 +1,18 @@
+# Microsoft Graph API (Outlook + Excel Online)
+msal>=1.24.0
+requests>=2.31.0
+
+# Salesforce
+simple-salesforce>=1.12.0
+
+# Datadog
+datadog-api-client>=2.20.0
+
+# Jira
+jira>=3.5.0
+
+# Utilities
+python-dateutil>=2.8.2
+pytz>=2023.3
+pyyaml>=6.0
+jinja2>=3.1.2
