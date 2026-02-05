@@ -48,6 +48,13 @@ class TokenManager:
         """Use refresh token to get a new access token."""
         token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
 
+        # Debug: check token length
+        token_len = len(self.refresh_token) if self.refresh_token else 0
+        print(f"  Refresh token length: {token_len} chars")
+
+        if token_len < 100:
+            raise Exception(f"Refresh token appears truncated (only {token_len} chars). Re-add the MS_REFRESH_TOKEN secret.")
+
         data = {
             "client_id": self.client_id,
             "scope": " ".join(SCOPES),
@@ -56,7 +63,17 @@ class TokenManager:
         }
 
         response = requests.post(token_url, data=data)
-        result = response.json()
+
+        # Debug: check response
+        print(f"  Token endpoint response: {response.status_code}")
+
+        if not response.text:
+            raise Exception(f"Empty response from token endpoint (status {response.status_code})")
+
+        try:
+            result = response.json()
+        except Exception as e:
+            raise Exception(f"Failed to parse token response: {response.text[:200]}")
 
         if "error" in result:
             raise Exception(
