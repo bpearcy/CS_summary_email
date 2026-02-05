@@ -1,11 +1,17 @@
 """
 Jira collector - fetches tickets and document submissions via Jira API.
+
+Configured for Street Diligence Jira instance.
 """
 
 import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jira import JIRA
+
+
+# Default Jira URL for Street Diligence
+DEFAULT_JIRA_URL = "https://streetdiligence.atlassian.net"
 
 
 class JiraCollector:
@@ -17,7 +23,7 @@ class JiraCollector:
         username: Optional[str] = None,
         api_token: Optional[str] = None,
     ):
-        self.url = url or os.environ.get("JIRA_URL")
+        self.url = url or os.environ.get("JIRA_URL", DEFAULT_JIRA_URL)
         self.username = username or os.environ.get("JIRA_USERNAME")
         self.api_token = api_token or os.environ.get("JIRA_API_TOKEN")
         self._jira: Optional[JIRA] = None
