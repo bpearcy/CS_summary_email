@@ -153,10 +153,9 @@ def main():
         # Jira data
         jira_data = {}
         if jira_collector:
-            client_label = f"client-{client_name.lower().replace(' ', '-')}"
             try:
                 jira_data = jira_collector.get_client_summary(
-                    client_label=client_label,
+                    client_name=client_name,
                     start_date=start_date,
                     end_date=end_date,
                 )
