@@ -122,20 +122,33 @@ def main():
     except Exception as e:
         print(f"  ERROR: Failed to fetch Outlook data: {e}")
 
-    # Build client list from Jira data (clients with actual activity)
-    # This ensures we report on clients that have PRODOPS tickets
+    # Get client list from Excel spreadsheet (authoritative list)
+    print("\nFetching client list from Excel...")
+    all_client_names = []
+    try:
+        all_client_names = excel_collector.get_client_names()
+        print(f"  Found {len(all_client_names)} clients in spreadsheet")
+    except Exception as e:
+        print(f"  ERROR: Failed to fetch client list: {e}")
+        # Fall back to Jira client names if Excel fails
+        all_client_names = sorted(jira_by_client.keys())
+        print(f"  Falling back to {len(all_client_names)} clients from Jira")
+
+    # Build report for ALL clients
     print("\nBuilding report by client...")
     clients_data = []
     report_gen = ReportGenerator()
 
-    # Process each client that has Jira tickets
-    for client_name in sorted(jira_by_client.keys()):
+    for client_name in all_client_names:
         # Skip internal/demo clients
         if "demo" in client_name.lower() or "client success" in client_name.lower():
             continue
 
-        tickets = jira_by_client[client_name]
-        print(f"  Processing: {client_name} ({len(tickets)} PRODOPS tickets)")
+        # Get Jira tickets for this client (fuzzy match on client name)
+        tickets = []
+        for jira_client, jira_tickets in jira_by_client.items():
+            if client_name.lower() in jira_client.lower() or jira_client.lower() in client_name.lower():
+                tickets.extend(jira_tickets)
 
         # Count ticket stats
         new_tickets = [t for t in tickets if t.get("created", "")[:10] >= start_date.strftime("%Y-%m-%d")]
@@ -157,7 +170,7 @@ def main():
             "issues": tickets,
         }
 
-        # Try to find Outlook data for this client (fuzzy match)
+        # Get Outlook data for this client (fuzzy match)
         client_events = outlook_collector.filter_by_client(all_events, client_name)
         client_emails_received = outlook_collector.filter_by_client(all_emails_received, client_name)
         client_emails_sent = outlook_collector.filter_by_client(all_emails_sent, client_name)
@@ -168,16 +181,27 @@ def main():
             "emails_sent": client_emails_sent,
         }
 
+        # Datadog data placeholder (time on platform)
+        datadog_data = {
+            "time_on_platform": 0,  # TODO: Integrate with Datadog
+        }
+
         # Aggregate data
         client_summary = report_gen.aggregate_client_data(
             client_name=client_name,
             outlook_data=outlook_data,
             salesforce_data={},
-            datadog_data={},
+            datadog_data=datadog_data,
             jira_data=jira_data,
         )
 
         clients_data.append(client_summary)
+
+        # Log summary for this client
+        docs = len(tickets)
+        emails = len(client_emails_received) + len(client_emails_sent)
+        meetings = len(client_events)
+        print(f"  {client_name}: {docs} docs, {emails} emails, {meetings} meetings")
 
     # Generate report
     print(f"\nGenerating report for {len(clients_data)} clients...")
@@ -185,7 +209,7 @@ def main():
         clients_data=clients_data,
         start_date=start_date,
         end_date=end_date,
-        include_inactive=False,
+        include_inactive=True,  # Show ALL clients
     )
     text_report = report_gen.generate_plain_text(
         clients_data=clients_data,

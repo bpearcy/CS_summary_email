@@ -61,6 +61,7 @@ class ReportGenerator:
                 "metrics": datadog_data.get("metrics", {}),
                 "monitors": datadog_data.get("monitors", []),
                 "monitor_summary": datadog_data.get("monitor_summary", {}),
+                "time_on_platform": datadog_data.get("time_on_platform", 0),
             },
             "jira": {
                 "issues": jira_data.get("issues", []),

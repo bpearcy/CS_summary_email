@@ -9,7 +9,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.5;
       color: #333;
-      max-width: 800px;
+      max-width: 900px;
       margin: 0 auto;
       padding: 20px;
       background-color: #f5f5f5;
@@ -26,26 +26,17 @@
       padding-bottom: 10px;
       margin-top: 0;
     }
-    h2 {
-      color: #34495e;
-      margin-top: 30px;
-      padding: 10px 15px;
-      background: #ecf0f1;
-      border-radius: 4px;
-      border-left: 4px solid #3498db;
-    }
-    h3 {
+    .period {
       color: #7f8c8d;
-      margin: 15px 0 5px 0;
       font-size: 0.9em;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      margin-top: -10px;
+      margin-bottom: 20px;
     }
     .summary-box {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
       gap: 15px;
-      margin: 20px 0;
+      margin: 20px 0 30px 0;
       padding: 20px;
       background: #f8f9fa;
       border-radius: 8px;
@@ -62,57 +53,48 @@
       font-size: 0.85em;
       color: #7f8c8d;
     }
-    .client-section {
-      margin-bottom: 25px;
-      padding-bottom: 25px;
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th {
+      background: #34495e;
+      color: white;
+      padding: 12px 15px;
+      text-align: left;
+      font-weight: 600;
+    }
+    th:not(:first-child) {
+      text-align: center;
+    }
+    td {
+      padding: 10px 15px;
       border-bottom: 1px solid #eee;
     }
-    .client-section:last-child {
-      border-bottom: none;
+    td:not(:first-child) {
+      text-align: center;
     }
-    .activity-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-      margin-top: 10px;
+    tr:nth-child(even) {
+      background: #f9f9f9;
     }
-    .activity-group {
-      flex: 1;
-      min-width: 200px;
+    tr:hover {
+      background: #f0f7ff;
     }
-    .stat-badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 0.85em;
-      margin-right: 5px;
+    .client-name {
+      font-weight: 500;
+      color: #2c3e50;
     }
-    .stat-badge.meetings { background: #e3f2fd; color: #1976d2; }
-    .stat-badge.emails { background: #e8f5e9; color: #388e3c; }
-    .stat-badge.salesforce { background: #fff3e0; color: #f57c00; }
-    .stat-badge.jira { background: #fce4ec; color: #c2185b; }
-    .stat-badge.usage { background: #f3e5f5; color: #7b1fa2; }
-    ul {
-      margin: 5px 0;
-      padding-left: 20px;
+    .zero {
+      color: #bdc3c7;
     }
-    li {
-      margin: 3px 0;
-      font-size: 0.9em;
-    }
-    .no-activity {
-      color: #95a5a6;
-      font-style: italic;
-    }
-    .alert {
-      color: #e74c3c;
-      font-weight: bold;
-    }
-    .warning {
-      color: #f39c12;
-    }
-    .ok {
+    .has-activity {
       color: #27ae60;
+      font-weight: 600;
+    }
+    .high-activity {
+      color: #e74c3c;
+      font-weight: 700;
     }
     .footer {
       margin-top: 30px;
@@ -121,11 +103,6 @@
       font-size: 0.8em;
       color: #95a5a6;
       text-align: center;
-    }
-    .period {
-      color: #7f8c8d;
-      font-size: 0.9em;
-      margin-top: -10px;
     }
   </style>
 </head>
@@ -137,116 +114,56 @@
     <div class="summary-box">
       <div class="summary-item">
         <div class="summary-number">{{ summary.total_clients }}</div>
-        <div class="summary-label">Active Clients</div>
+        <div class="summary-label">Clients</div>
       </div>
       <div class="summary-item">
-        <div class="summary-number">{{ summary.total_meetings }}</div>
-        <div class="summary-label">Meetings</div>
+        <div class="summary-number">{{ summary.total_jira_issues }}</div>
+        <div class="summary-label">Docs</div>
       </div>
       <div class="summary-item">
         <div class="summary-number">{{ summary.total_emails_received + summary.total_emails_sent }}</div>
         <div class="summary-label">Emails</div>
       </div>
       <div class="summary-item">
-        <div class="summary-number">{{ summary.total_new_issues }}</div>
-        <div class="summary-label">New Issues</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-number">{{ summary.total_resolved_issues }}</div>
-        <div class="summary-label">Resolved</div>
+        <div class="summary-number">{{ summary.total_meetings }}</div>
+        <div class="summary-label">Meetings</div>
       </div>
     </div>
 
-    {% for client in clients %}
-    <div class="client-section">
-      <h2>{{ client.name }}</h2>
-
-      <div class="activity-row">
-        {% if client.calendar.meeting_count > 0 %}
-        <div class="activity-group">
-          <h3>Calendar</h3>
-          <span class="stat-badge meetings">{{ client.calendar.meeting_count }} meetings</span>
-          <ul>
-            {% for meeting in client.calendar.meetings[:5] %}
-            <li>{{ meeting.subject or 'No subject' }}</li>
-            {% endfor %}
-            {% if client.calendar.meetings|length > 5 %}
-            <li><em>...and {{ client.calendar.meetings|length - 5 }} more</em></li>
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Docs</th>
+          <th>Emails</th>
+          <th>Meetings</th>
+          <th>Time on Platform</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for client in clients %}
+        <tr>
+          <td class="client-name">{{ client.name }}</td>
+          <td class="{% if client.jira.total_issues == 0 %}zero{% elif client.jira.total_issues >= 5 %}high-activity{% else %}has-activity{% endif %}">
+            {{ client.jira.total_issues }}
+          </td>
+          <td class="{% if client.email.received_count + client.email.sent_count == 0 %}zero{% elif client.email.received_count + client.email.sent_count >= 10 %}high-activity{% else %}has-activity{% endif %}">
+            {{ client.email.received_count + client.email.sent_count }}
+          </td>
+          <td class="{% if client.calendar.meeting_count == 0 %}zero{% elif client.calendar.meeting_count >= 3 %}high-activity{% else %}has-activity{% endif %}">
+            {{ client.calendar.meeting_count }}
+          </td>
+          <td class="{% if client.usage.time_on_platform is defined and client.usage.time_on_platform > 0 %}has-activity{% else %}zero{% endif %}">
+            {% if client.usage.time_on_platform is defined and client.usage.time_on_platform > 0 %}
+              {{ client.usage.time_on_platform }} min
+            {% else %}
+              -
             {% endif %}
-          </ul>
-        </div>
-        {% endif %}
-
-        {% if client.email.received_count > 0 or client.email.sent_count > 0 %}
-        <div class="activity-group">
-          <h3>Email</h3>
-          {% if client.email.received_count > 0 %}
-          <span class="stat-badge emails">{{ client.email.received_count }} received</span>
-          {% endif %}
-          {% if client.email.sent_count > 0 %}
-          <span class="stat-badge emails">{{ client.email.sent_count }} sent</span>
-          {% endif %}
-        </div>
-        {% endif %}
-
-        {% if client.salesforce.task_count > 0 or client.salesforce.event_count > 0 or client.salesforce.opportunity_count > 0 %}
-        <div class="activity-group">
-          <h3>Salesforce</h3>
-          {% if client.salesforce.task_count > 0 %}
-          <span class="stat-badge salesforce">{{ client.salesforce.task_count }} tasks</span>
-          {% endif %}
-          {% if client.salesforce.event_count > 0 %}
-          <span class="stat-badge salesforce">{{ client.salesforce.event_count }} events</span>
-          {% endif %}
-          {% if client.salesforce.opportunity_count > 0 %}
-          <span class="stat-badge salesforce">{{ client.salesforce.opportunity_count }} opportunities</span>
-          {% endif %}
-          {% if client.salesforce.opportunities %}
-          <ul>
-            {% for opp in client.salesforce.opportunities[:3] %}
-            <li>{{ opp.name }} - {{ opp.stage }}</li>
-            {% endfor %}
-          </ul>
-          {% endif %}
-        </div>
-        {% endif %}
-
-        {% if client.jira.total_issues > 0 %}
-        <div class="activity-group">
-          <h3>Jira</h3>
-          <span class="stat-badge jira">{{ client.jira.new_issues }} new</span>
-          <span class="stat-badge jira">{{ client.jira.resolved_issues }} resolved</span>
-          {% if client.jira.by_status %}
-          <ul>
-            {% for status, count in client.jira.by_status.items() %}
-            <li>{{ status }}: {{ count }}</li>
-            {% endfor %}
-          </ul>
-          {% endif %}
-        </div>
-        {% endif %}
-
-        {% if client.usage.monitor_summary and client.usage.monitor_summary.total > 0 %}
-        <div class="activity-group">
-          <h3>Monitors</h3>
-          {% if client.usage.monitor_summary.alert > 0 %}
-          <span class="stat-badge alert">{{ client.usage.monitor_summary.alert }} alerts</span>
-          {% endif %}
-          {% if client.usage.monitor_summary.warn > 0 %}
-          <span class="stat-badge warning">{{ client.usage.monitor_summary.warn }} warnings</span>
-          {% endif %}
-          {% if client.usage.monitor_summary.ok > 0 %}
-          <span class="stat-badge ok">{{ client.usage.monitor_summary.ok }} OK</span>
-          {% endif %}
-        </div>
-        {% endif %}
-      </div>
-
-      {% if not client.has_activity %}
-      <p class="no-activity">No activity this period</p>
-      {% endif %}
-    </div>
-    {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
 
     <div class="footer">
       Report generated {{ generated_at }}

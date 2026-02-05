@@ -18,3 +18,5 @@ venv/
 # Secrets
 .env
 config.yaml
+REFRESH_TOKEN.txt
+device_code.txt
