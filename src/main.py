@@ -19,10 +19,18 @@ from collectors import (
 from report import ReportGenerator
 
 
-def get_date_range(lookback_days: int = 7) -> tuple[datetime, datetime]:
-    """Get the date range for the report."""
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=lookback_days)
+def get_date_range() -> tuple[datetime, datetime]:
+    """Get the date range for the report (Monday-Sunday of current week)."""
+    today = datetime.utcnow().date()
+    # Find Monday of this week (weekday() returns 0 for Monday)
+    days_since_monday = today.weekday()
+    monday = today - timedelta(days=days_since_monday)
+    sunday = monday + timedelta(days=6)
+
+    # Convert to datetime at start/end of day
+    start_date = datetime.combine(monday, datetime.min.time())
+    end_date = datetime.combine(sunday, datetime.max.time())
+
     return start_date, end_date
 
 
@@ -78,9 +86,9 @@ def main():
     else:
         print("  - Jira collector SKIPPED (no JIRA_API_TOKEN)")
 
-    # Get date range
-    start_date, end_date = get_date_range(7)
-    print(f"\nReport period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    # Get date range (Monday-Sunday of current week)
+    start_date, end_date = get_date_range()
+    print(f"\nReport period: {start_date.strftime('%Y-%m-%d')} (Mon) to {end_date.strftime('%Y-%m-%d')} (Sun)")
 
     # Fetch Jira data FIRST - grouped by client
     # This gives us the authoritative list of clients with activity
@@ -98,6 +106,8 @@ def main():
                 print(f"    - {client}: {len(tickets)} tickets")
         except Exception as e:
             print(f"  ERROR: Failed to fetch Jira data: {e}")
+            import traceback
+            traceback.print_exc()
 
     # Fetch Outlook data (calendar events and emails)
     print("\nFetching Outlook data...")

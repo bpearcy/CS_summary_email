@@ -136,7 +136,7 @@ class JiraCollector:
         end_date: Optional[datetime] = None,
     ) -> dict[str, list[dict]]:
         """
-        Fetch all PRODOPS tickets updated in the date range, grouped by client.
+        Fetch all PRODOPS tickets CREATED in the date range, grouped by client.
 
         Returns:
             Dict mapping client name to list of tickets
@@ -149,13 +149,15 @@ class JiraCollector:
         start_str = start_date.strftime("%Y-%m-%d")
         end_str = end_date.strftime("%Y-%m-%d")
 
-        # Get all PRODOPS Support tickets updated in the date range
+        # Get all PRODOPS Support tickets CREATED in the date range
         jql = (
             f'project = PRODOPS AND issuetype = Support '
             f'AND "{CLIENT_FIELD}" is not EMPTY '
-            f'AND updated >= "{start_str}" AND updated <= "{end_str}" '
-            f'ORDER BY updated DESC'
+            f'AND created >= "{start_str}" AND created <= "{end_str}" '
+            f'ORDER BY created DESC'
         )
+
+        print(f"    Jira JQL: {jql}")
 
         issues = self._search(
             jql=jql,
