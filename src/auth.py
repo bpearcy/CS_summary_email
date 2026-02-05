@@ -67,7 +67,12 @@ class TokenManager:
             "grant_type": "refresh_token",
         }
 
-        response = requests.post(token_url, data=data)
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        print(f"  Token URL: {token_url}")
+        response = requests.post(token_url, data=data, headers=headers)
 
         # Debug: check response
         print(f"  Token endpoint response: {response.status_code}")
