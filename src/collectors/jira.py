@@ -1,21 +1,26 @@
 """
-Jira collector - fetches tickets and document submissions via Jira API.
+Jira collector - fetches PRODOPS tickets via Jira API.
 
 Configured for Street Diligence Jira instance.
+Uses the POST /rest/api/3/search/jql endpoint for searching.
 """
 
 import os
 from datetime import datetime, timedelta
 from typing import Optional
-from jira import JIRA
+import requests
+from requests.auth import HTTPBasicAuth
 
 
 # Default Jira URL for Street Diligence
 DEFAULT_JIRA_URL = "https://streetdiligence.atlassian.net"
 
+# Custom field for SD Client
+CLIENT_FIELD = "customfield_11493"
+
 
 class JiraCollector:
-    """Collects tickets and document submissions from Jira."""
+    """Collects PRODOPS tickets from Jira."""
 
     def __init__(
         self,
@@ -26,73 +31,115 @@ class JiraCollector:
         self.url = url or os.environ.get("JIRA_URL", DEFAULT_JIRA_URL)
         self.username = username or os.environ.get("JIRA_USERNAME")
         self.api_token = api_token or os.environ.get("JIRA_API_TOKEN")
-        self._jira: Optional[JIRA] = None
+        self._auth = HTTPBasicAuth(self.username, self.api_token) if self.username and self.api_token else None
 
-    def _connect(self) -> JIRA:
-        """Connect to Jira."""
-        if self._jira:
-            return self._jira
+    def _search(self, jql: str, fields: list[str], max_results: int = 100) -> list[dict]:
+        """
+        Search for issues using the POST /rest/api/3/search/jql endpoint.
 
-        self._jira = JIRA(
-            server=self.url,
-            basic_auth=(self.username, self.api_token),
-        )
-        return self._jira
+        This endpoint supports pagination via nextPageToken.
+        """
+        url = f"{self.url}/rest/api/3/search/jql"
+        all_issues = []
+        next_page_token = None
 
-    def search_issues(
+        while True:
+            payload = {
+                "jql": jql,
+                "fields": fields,
+                "maxResults": min(max_results - len(all_issues), 100),
+            }
+            if next_page_token:
+                payload["nextPageToken"] = next_page_token
+
+            response = requests.post(url, auth=self._auth, json=payload)
+
+            if response.status_code != 200:
+                print(f"    Jira search failed: {response.status_code} - {response.text[:200]}")
+                break
+
+            data = response.json()
+            issues = data.get("issues", [])
+            all_issues.extend(issues)
+
+            # Check for more pages
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token or len(all_issues) >= max_results:
+                break
+
+        return all_issues
+
+    def get_client_tickets(
         self,
-        jql: str,
-        max_results: int = 100,
+        client_name: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        statuses: Optional[list[str]] = None,
     ) -> list[dict]:
         """
-        Search for issues using JQL.
+        Fetch PRODOPS tickets for a specific client.
 
         Args:
-            jql: JQL query string
-            max_results: Maximum results to return
+            client_name: Client name (matches SD Client field)
+            start_date: Start of date range (default: 7 days ago)
+            end_date: End of date range (default: now)
+            statuses: List of statuses to include (default: all open statuses)
 
         Returns:
-            List of issues
+            List of tickets
         """
-        jira = self._connect()
-        issues = jira.search_issues(jql, maxResults=max_results)
+        if start_date is None:
+            start_date = datetime.utcnow() - timedelta(days=7)
+        if end_date is None:
+            end_date = datetime.utcnow()
+
+        if statuses is None:
+            statuses = ["Waiting for support", "Ticket Created", "Pending", "Escalated", "In Progress", "Resolved", "Canceled"]
+
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+
+        # Escape quotes in client name
+        safe_client = client_name.replace('"', '\\"')
+
+        # Build JQL - search for tickets updated in the date range for this client
+        status_list = ", ".join([f'"{s}"' for s in statuses])
+        jql = (
+            f'project = PRODOPS AND issuetype = Support '
+            f'AND "{CLIENT_FIELD}" ~ "{safe_client}" '
+            f'AND updated >= "{start_str}" AND updated <= "{end_str}" '
+            f'ORDER BY updated DESC'
+        )
+
+        issues = self._search(
+            jql=jql,
+            fields=["key", "summary", CLIENT_FIELD, "status", "created", "updated", "resolutiondate"],
+            max_results=100,
+        )
 
         return [
             {
-                "key": issue.key,
-                "summary": issue.fields.summary,
-                "status": issue.fields.status.name,
-                "issue_type": issue.fields.issuetype.name,
-                "priority": issue.fields.priority.name if issue.fields.priority else None,
-                "assignee": issue.fields.assignee.displayName if issue.fields.assignee else None,
-                "reporter": issue.fields.reporter.displayName if issue.fields.reporter else None,
-                "created": str(issue.fields.created),
-                "updated": str(issue.fields.updated),
-                "resolved": str(issue.fields.resolutiondate) if issue.fields.resolutiondate else None,
-                "labels": issue.fields.labels,
-                "components": [c.name for c in issue.fields.components] if issue.fields.components else [],
+                "key": issue["key"],
+                "summary": issue["fields"].get("summary", ""),
+                "client": issue["fields"].get(CLIENT_FIELD, ""),
+                "status": issue["fields"].get("status", {}).get("name", ""),
+                "created": issue["fields"].get("created", ""),
+                "updated": issue["fields"].get("updated", ""),
+                "resolved": issue["fields"].get("resolutiondate"),
             }
             for issue in issues
         ]
 
-    def get_issues_by_label(
+    def get_all_client_tickets(
         self,
-        label: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        include_resolved: bool = True,
-    ) -> list[dict]:
+    ) -> dict[str, list[dict]]:
         """
-        Fetch issues by label within a date range.
-
-        Args:
-            label: Jira label to filter by
-            start_date: Start of date range (default: 7 days ago)
-            end_date: End of date range (default: now)
-            include_resolved: Include resolved issues
+        Fetch all PRODOPS tickets updated in the date range, grouped by client.
 
         Returns:
-            List of issues
+            Dict mapping client name to list of tickets
         """
         if start_date is None:
             start_date = datetime.utcnow() - timedelta(days=7)
@@ -102,135 +149,80 @@ class JiraCollector:
         start_str = start_date.strftime("%Y-%m-%d")
         end_str = end_date.strftime("%Y-%m-%d")
 
-        jql = f'labels = "{label}" AND updated >= "{start_str}" AND updated <= "{end_str}"'
-
-        if not include_resolved:
-            jql += " AND resolution IS EMPTY"
-
-        return self.search_issues(jql)
-
-    def get_issues_by_project(
-        self,
-        project_key: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> list[dict]:
-        """
-        Fetch issues by project key within a date range.
-
-        Args:
-            project_key: Jira project key
-            start_date: Start of date range
-            end_date: End of date range
-
-        Returns:
-            List of issues
-        """
-        if start_date is None:
-            start_date = datetime.utcnow() - timedelta(days=7)
-        if end_date is None:
-            end_date = datetime.utcnow()
-
-        start_str = start_date.strftime("%Y-%m-%d")
-        end_str = end_date.strftime("%Y-%m-%d")
-
-        jql = f'project = "{project_key}" AND updated >= "{start_str}" AND updated <= "{end_str}"'
-
-        return self.search_issues(jql)
-
-    def get_document_submissions(
-        self,
-        client_identifier: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        issue_type: str = "Document Submission",
-    ) -> list[dict]:
-        """
-        Fetch document submissions for a client.
-
-        Args:
-            client_identifier: Label or project key for the client
-            start_date: Start of date range
-            end_date: End of date range
-            issue_type: Issue type for document submissions
-
-        Returns:
-            List of document submission issues
-        """
-        if start_date is None:
-            start_date = datetime.utcnow() - timedelta(days=7)
-        if end_date is None:
-            end_date = datetime.utcnow()
-
-        start_str = start_date.strftime("%Y-%m-%d")
-        end_str = end_date.strftime("%Y-%m-%d")
-
-        # Try label first, fall back to text search
+        # Get all PRODOPS Support tickets updated in the date range
         jql = (
-            f'(labels = "{client_identifier}" OR text ~ "{client_identifier}") '
-            f'AND issuetype = "{issue_type}" '
-            f'AND updated >= "{start_str}" AND updated <= "{end_str}"'
+            f'project = PRODOPS AND issuetype = Support '
+            f'AND "{CLIENT_FIELD}" is not EMPTY '
+            f'AND updated >= "{start_str}" AND updated <= "{end_str}" '
+            f'ORDER BY updated DESC'
         )
 
-        try:
-            return self.search_issues(jql)
-        except Exception:
-            # Fall back to just label search if issue type doesn't exist
-            jql = (
-                f'labels = "{client_identifier}" '
-                f'AND updated >= "{start_str}" AND updated <= "{end_str}"'
-            )
-            return self.search_issues(jql)
+        issues = self._search(
+            jql=jql,
+            fields=["key", "summary", CLIENT_FIELD, "status", "created", "updated", "resolutiondate"],
+            max_results=500,
+        )
+
+        # Group by client
+        by_client: dict[str, list[dict]] = {}
+        for issue in issues:
+            client = issue["fields"].get(CLIENT_FIELD, "Unknown")
+            if client not in by_client:
+                by_client[client] = []
+
+            by_client[client].append({
+                "key": issue["key"],
+                "summary": issue["fields"].get("summary", ""),
+                "status": issue["fields"].get("status", {}).get("name", ""),
+                "created": issue["fields"].get("created", ""),
+                "updated": issue["fields"].get("updated", ""),
+                "resolved": issue["fields"].get("resolutiondate"),
+            })
+
+        return by_client
 
     def get_client_summary(
         self,
-        client_label: str,
+        client_name: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> dict:
         """
-        Get a summary of all Jira activity for a client.
+        Get a summary of PRODOPS activity for a client.
 
         Args:
-            client_label: Jira label for the client
+            client_name: Client name
             start_date: Start of date range
             end_date: End of date range
 
         Returns:
-            Summary dict with issues by status and type
+            Summary dict with ticket counts and details
         """
-        issues = self.get_issues_by_label(
-            label=client_label,
+        tickets = self.get_client_tickets(
+            client_name=client_name,
             start_date=start_date,
             end_date=end_date,
         )
 
-        # Group by status
-        by_status = {}
-        for issue in issues:
-            status = issue["status"]
-            if status not in by_status:
-                by_status[status] = []
-            by_status[status].append(issue)
-
-        # Group by type
-        by_type = {}
-        for issue in issues:
-            issue_type = issue["issue_type"]
-            if issue_type not in by_type:
-                by_type[issue_type] = []
-            by_type[issue_type].append(issue)
+        # Count by status
+        by_status: dict[str, int] = {}
+        for ticket in tickets:
+            status = ticket["status"]
+            by_status[status] = by_status.get(status, 0) + 1
 
         # Count new vs resolved
-        new_issues = [i for i in issues if i["created"] >= str(start_date)]
-        resolved_issues = [i for i in issues if i["resolved"]]
+        if start_date:
+            new_tickets = [t for t in tickets if t["created"] >= str(start_date)]
+        else:
+            new_tickets = []
+        resolved_tickets = [t for t in tickets if t["resolved"]]
 
         return {
-            "client": client_label,
-            "total_issues": len(issues),
-            "new_issues": len(new_issues),
-            "resolved_issues": len(resolved_issues),
-            "by_status": {k: len(v) for k, v in by_status.items()},
-            "by_type": {k: len(v) for k, v in by_type.items()},
-            "issues": issues,
+            "client": client_name,
+            "total_issues": len(tickets),
+            "new_issues": len(new_tickets),
+            "resolved_issues": len(resolved_tickets),
+            "by_status": by_status,
+            "by_type": {"Support": len(tickets)},
+            "issues": tickets,
         }
