@@ -7,6 +7,7 @@ that was obtained through interactive login.
 
 import os
 from typing import Optional
+from urllib.parse import urlencode
 import requests
 
 # Azure AD App Configuration
@@ -60,7 +61,7 @@ class TokenManager:
         if token_len < 100:
             raise Exception(f"Refresh token appears truncated (only {token_len} chars). Re-add the MS_REFRESH_TOKEN secret.")
 
-        data = {
+        payload = {
             "client_id": self.client_id,
             "scope": " ".join(SCOPES),
             "refresh_token": self.refresh_token,
@@ -72,7 +73,8 @@ class TokenManager:
         }
 
         print(f"  Token URL: {token_url}")
-        response = requests.post(token_url, data=data, headers=headers)
+        encoded_data = urlencode(payload)
+        response = requests.post(token_url, data=encoded_data, headers=headers)
 
         # Debug: check response
         print(f"  Token endpoint response: {response.status_code}")
