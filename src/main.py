@@ -122,21 +122,8 @@ def main():
     except Exception as e:
         print(f"  ERROR: Failed to fetch Outlook data: {e}")
 
-    # Hardcoded fallback client list (from Clients and Products spreadsheet)
-    FALLBACK_CLIENTS = [
-        "Accel-KKR", "Advent International", "American Securities", "Ampersand Capital Partners",
-        "Apax Partners", "Apollo Global Management", "Aquiline Capital Partners", "Arcline Investment Management",
-        "Ares Management", "Arsenal Capital Partners", "Audax Private Equity", "Bain Capital",
-        "Battery Ventures", "Berkshire Partners", "Blackstone", "Blue Owl Capital", "Bregal Sagemount",
-        "Brighton Park Capital", "Brookfield", "CCMP Capital", "Centerbridge Partners", "Charlesbank Capital Partners",
-        "Cinven", "Clayton Dubilier & Rice", "Clearlake Capital", "CVC Capital Partners",
-        "Eurazeo", "Francisco Partners", "General Atlantic", "GI Partners", "GTCR",
-        "H.I.G. Capital", "Hellman & Friedman", "Insight Partners", "KKR",
-        "L Catterton", "Leonard Green & Partners", "Lovell Minnick Partners", "Madison Dearborn Partners",
-        "Marlin Equity Partners", "New Mountain Capital", "Onex Partners", "PAI Partners",
-        "Permira", "Providence Equity Partners", "Silver Lake", "Summit Partners", "TA Associates",
-        "Thoma Bravo", "TPG", "Veritas Capital", "Vista Equity Partners", "Warburg Pincus",
-    ]
+    # Fallback: use Jira clients if Excel fails (no hardcoded list since we filter by status)
+    FALLBACK_CLIENTS = []
 
     # Get client list from Excel spreadsheet (authoritative list)
     print("\nFetching client list from Excel...")
@@ -153,10 +140,10 @@ def main():
         import traceback
         traceback.print_exc()
 
-    # Fall back to hardcoded list if Excel fails or returns empty
+    # Fall back to Jira clients if Excel fails or returns empty
     if not all_client_names:
-        print(f"  Using fallback client list ({len(FALLBACK_CLIENTS)} clients)")
-        all_client_names = FALLBACK_CLIENTS
+        all_client_names = sorted(jira_by_client.keys())
+        print(f"  Using Jira clients as fallback ({len(all_client_names)} clients)")
 
     # Build report for ALL clients
     print("\nBuilding report by client...")

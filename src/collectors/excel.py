@@ -117,15 +117,24 @@ class ExcelCollector:
                 continue
 
             # Client name is in column B (index 1)
+            # Status is in column L (index 11)
+            client_name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+            status = str(row[11]).strip().lower() if len(row) > 11 and row[11] else ""
+
+            # Only include Active or Onboarding clients
+            if not client_name:
+                continue
+            if status not in ("active", "onboarding"):
+                continue
+
             client = {
-                "name": str(row[1]).strip() if len(row) > 1 and row[1] else "",
+                "name": client_name,
+                "status": status,
                 "data_location_requirements": str(row[2]).strip() if len(row) > 2 and row[2] else "",
                 "subcontractor_requirements": str(row[3]).strip() if len(row) > 3 and row[3] else "",
             }
 
-            # Only add if there's a client name
-            if client["name"]:
-                clients.append(client)
+            clients.append(client)
 
         # Sort alphabetically by name
         clients.sort(key=lambda c: c["name"].lower())
